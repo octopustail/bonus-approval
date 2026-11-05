@@ -2,7 +2,7 @@
 //   LocalStore    —— 单机演示模式，数据存在 localStorage
 //   SupabaseStore —— 多人模式，直接调用 Supabase REST 接口（无需 SDK）
 // 表：cards（集戳卡）· buddies（戳戳搭子）· checkins（打卡）· stamps（戳）· raises（加 2 格）
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=20261106';
 
 export function uid() {
   if (globalThis.crypto && crypto.randomUUID) return crypto.randomUUID();

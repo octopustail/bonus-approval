@@ -1,8 +1,8 @@
-import * as L from './logic.js';
-import { store, uid } from './store.js';
-import { drawShareCard, drawAchievementCard } from './card.js';
-import { stampSvg, stampLabel, stampColor, pigeonSvg, animalSvg, badgeSvg, parseCode, ZHUPI, GU, ANIMALS } from './art.js';
-import { ACHIEVEMENTS, RARITY, computeAchievements, streakOf, streakTitle, guDays } from './achievements.js';
+import * as L from './logic.js?v=20261106';
+import { store, uid } from './store.js?v=20261106';
+import { drawShareCard, drawAchievementCard } from './card.js?v=20261106';
+import { stampSvg, stampLabel, stampColor, pigeonSvg, animalSvg, badgeSvg, parseCode, ZHUPI, GU, ANIMALS } from './art.js?v=20261106';
+import { ACHIEVEMENTS, RARITY, computeAchievements, streakOf, streakTitle, guDays } from './achievements.js?v=20261106';
 
 const $app = document.getElementById('app');
 const DEMO = store.mode === 'local';

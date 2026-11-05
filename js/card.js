@@ -1,7 +1,7 @@
 // 分享卡：1080 × 1440（3:4，朋友圈 / 小红书）。戳和咕咕都用 art.js 的同一套 SVG 画上去。
-import * as L from './logic.js';
-import { stampSvg, stampColor, svgImage, pigeonSvg, badgeSvg } from './art.js';
-import { RARITY } from './achievements.js';
+import * as L from './logic.js?v=20261106';
+import { stampSvg, stampColor, svgImage, pigeonSvg, badgeSvg } from './art.js?v=20261106';
+import { RARITY } from './achievements.js?v=20261106';
 
 const FONT = '-apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
 const MINT = '#DDF3E9', EDGE = '#B9DCCB', INK = '#222222', MUTED = '#5E6E67', DASH = '#C9D9D1', YELLOW = '#FFE15C';

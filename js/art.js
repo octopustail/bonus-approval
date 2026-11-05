@@ -6,8 +6,8 @@
 //   朱批            '@zp:zhidao'
 //   咕咕表情        '@gu:heart'          '@gu:auto' = 咕咕代盖
 //   动物园分身      '@an:cat'
-import { GLYPHS } from './glyphs.js';
-import { ICONS } from './icons.js';
+import { GLYPHS } from './glyphs.js?v=20261106';
+import { ICONS } from './icons.js?v=20261106';
 
 const INK = '#222';
 const xml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

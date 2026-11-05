@@ -1,5 +1,5 @@
 // 成就、连戳、动物解锁 —— 全部从已有数据推算，不需要额外的数据库表
-import * as L from './logic.js';
+import * as L from './logic.js?v=20261106';
 
 export const RARITY = {
   common: { name: '普通', color: '#17A673' },
