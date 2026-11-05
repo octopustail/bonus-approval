@@ -14,6 +14,15 @@ export const SYSTEM_STAMPS = [
   { key: 'chong', text: '冲', color: '#9B4DE0' },
   { key: 'wen', text: '稳', color: '#E07A00' },
 ];
+// 图案戳：text 以 @ 开头，图形定义在 icons.js
+export const ICON_STAMPS = [
+  { key: 'flower', text: '@flower', color: '#E8434F' },
+  { key: 'heart', text: '@heart', color: '#D6336C' },
+  { key: 'star', text: '@star', color: '#E07A00' },
+  { key: 'crown', text: '@crown', color: '#9B4DE0' },
+  { key: 'paw', text: '@paw', color: '#3E5BF2' },
+  { key: 'flame', text: '@flame', color: '#F0592A' },
+];
 export const AUTO_STAMP = { key: 'auto', text: '默认', color: '#A3ADB2' };
 export const CUSTOM_COLORS = ['#E8434F', '#3E5BF2', '#17A673', '#9B4DE0', '#E07A00', '#0E8BC0', '#D6336C'];
 
@@ -35,7 +44,7 @@ export function validCustomStamp(text) {
   const t = String(text || '').trim();
   const chars = [...t];
   if (chars.length < 1 || chars.length > 2) return { ok: false, msg: '专属戳写 1–2 个字' };
-  if (/[\s<>"'&]/.test(t)) return { ok: false, msg: '专属戳不能有空格或符号' };
+  if (/[\s<>"'&@]/.test(t)) return { ok: false, msg: '专属戳不能有空格或符号' };
   if (BLOCK.some(w => t.includes(w))) return { ok: false, msg: '换个友善点的字吧' };
   return { ok: true, text: t };
 }

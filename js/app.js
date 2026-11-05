@@ -1,6 +1,7 @@
 import * as L from './logic.js';
 import { store, uid } from './store.js';
 import { drawShareCard } from './card.js';
+import { iconSvg, iconOf, stampLabel } from './icons.js';
 
 const $app = document.getElementById('app');
 const DEMO = store.mode === 'local';
@@ -34,7 +35,9 @@ const colsFor = n => (n <= 2 ? 3 : n <= 8 ? 4 : n <= 15 ? 5 : 6);
 function fmtTime(ts) { const d = new Date(ts + 8 * L.HOUR).toISOString(); return `${L.fmtDate(d.slice(0, 10))} ${d.slice(11, 16)}`; }
 
 function stampEl(s, cls = '') {
-  return `<span class="stamp ${cls}" style="--c:${s.color};--r:${L.tiltFor(s.id || s.text)}deg">${esc(s.text)}${s.user_name ? `<small>${esc(s.user_name)}</small>` : ''}</span>`;
+  const icon = iconOf(s.text);
+  const face = icon ? iconSvg(s.text) : esc(s.text);
+  return `<span class="stamp ${icon ? 'icon' : ''} ${cls}" style="--c:${s.color};--r:${L.tiltFor(s.id || s.text)}deg" ${icon ? `aria-label="${esc(icon.label)}"` : ''}>${face}${s.user_name ? `<small>${esc(s.user_name)}</small>` : ''}</span>`;
 }
 function stampsOf(k, stamps) { return stamps.filter(s => s.checkin_id === k.id && s.kind === 'stamp').sort((a, b) => a.created_at - b.created_at); }
 function autoStamp(k) { return { ...L.AUTO_STAMP, id: 'auto-' + k.id, user_name: '系统' }; }
@@ -265,7 +268,7 @@ function entryHtml(k, ctx) {
   return `<article class="entry"><header><b>${L.fmtDate(k.date)}${k.attempt > 1 ? ' · 补交' : ''}</b>${tag}</header>
     ${k.image_url ? `<img src="${esc(k.image_url)}" alt="${L.fmtDate(k.date)}的打卡照片" loading="lazy">` : ''}
     ${k.note ? `<p class="note">${esc(k.note)}</p>` : ''}
-    ${mine.length ? `<div class="reacts">${mine.sort((a, b) => a.created_at - b.created_at).map(s => `<div class="react">${s.kind === 'stamp' ? stampEl({ ...s, user_name: '' }, 'inline') : '<span class="nope-mark">这不算</span>'}<span><b>${esc(s.user_name)}</b>${s.comment ? `：${esc(s.comment)}` : s.kind === 'nope' ? ' 觉得这次不算' : ` 盖了「${esc(s.text)}」`}</span></div>`).join('')}</div>` : ''}
+    ${mine.length ? `<div class="reacts">${mine.sort((a, b) => a.created_at - b.created_at).map(s => `<div class="react">${s.kind === 'stamp' ? stampEl({ ...s, user_name: '' }, 'inline') : '<span class="nope-mark">这不算</span>'}<span><b>${esc(s.user_name)}</b>${s.comment ? `：${esc(s.comment)}` : s.kind === 'nope' ? ' 觉得这次不算' : ` 盖了「${esc(stampLabel(s.text))}」`}</span></div>`).join('')}</div>` : ''}
     ${canStamp ? `<button class="btn red sm" data-act="stamp" data-kid="${esc(k.id)}">给 Ta 盖戳</button>` : ''}
   </article>`;
 }
@@ -401,7 +404,7 @@ async function pageCard(id, params) {
 // 预览：用搭子的专属戳和系统戳把格子盖满
 function previewData(card, buddies, sum) {
   const pool = [...buddies.map(b => ({ text: b.custom_stamp, color: L.customColorFor(b.user_id), user_id: b.user_id, user_name: b.user_name })),
-    ...L.SYSTEM_STAMPS.map(s => ({ ...s, user_id: 'sys', user_name: '' }))];
+    ...L.ICON_STAMPS.map(s => ({ ...s, user_id: 'sys', user_name: '' })), ...L.SYSTEM_STAMPS.map(s => ({ ...s, user_id: 'sys', user_name: '' }))];
   const stamped = [], stamps = [];
   for (let i = 0; i < sum.target; i++) {
     const k = { id: `pv-k${i}`, date: L.addDays(sum.win.start, i), created_at: 0 };
@@ -451,11 +454,11 @@ function pageInvite({ card, buddies, checkins, stamps }) {
 // ---------- 盖戳弹层 ----------
 function openStampSheet({ card, checkin, myBuddy, stamps, wasFull }) {
   const custom = { key: 'custom', text: myBuddy.custom_stamp, color: L.customColorFor(me.id) };
-  const options = [...L.SYSTEM_STAMPS, custom];
+  const options = [...L.ICON_STAMPS, ...L.SYSTEM_STAMPS, custom];
   const m = showModal(`<h3>给 ${esc(card.owner_name)} 盖个戳</h3><p class="hint">${L.fmtDate(checkin.date)}的打卡${checkin.note ? `：${esc(checkin.note)}` : ''}</p>
     <div class="target" id="tg" style="${checkin.image_url ? `background-image:url('${esc(checkin.image_url)}')` : ''}"></div>
     <div class="tray" role="group" aria-label="选一个戳">
-      ${options.map((o, i) => `<button type="button" data-i="${i}" aria-pressed="${i === 0}"><span class="ring">${stampEl({ id: 'o' + i, text: o.text, color: o.color })}</span>${o.key === 'custom' ? '我的专属' : ''}</button>`).join('')}
+      ${options.map((o, i) => `<button type="button" data-i="${i}" aria-pressed="${i === 0}"><span class="ring">${stampEl({ id: 'o' + i, text: o.text, color: o.color })}</span>${o.key === 'custom' ? '我的专属' : iconOf(o.text) ? esc(stampLabel(o.text)) : ''}</button>`).join('')}
       <button type="button" data-i="nope" aria-pressed="false"><span class="nope-ring">这不算</span></button>
     </div>
     <label class="f" for="cm">说一句（选填）</label><input id="cm" type="text" maxlength="30" placeholder="比如：配速可以啊">

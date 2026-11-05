@@ -1,5 +1,6 @@
 // 分享卡：1080 × 1440（3:4，朋友圈 / 小红书），一张盖满戳的集戳卡
 import * as L from './logic.js';
+import { drawIcon } from './icons.js';
 
 const FONT = '-apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
 const MINT = '#DDF3E9', EDGE = '#B9DCCB', INK = '#222222', MUTED = '#5E6E67', DASH = '#C9D9D1', YELLOW = '#FFE15C';
@@ -20,9 +21,11 @@ function stamp(ctx, cx, cy, r, text, color, tiltDeg) {
   ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = color; ctx.lineWidth = r * 0.12; ctx.beginPath(); ctx.arc(0, 0, r - ctx.lineWidth / 2, 0, Math.PI * 2); ctx.stroke();
   ctx.globalAlpha = 0.35; ctx.lineWidth = r * 0.04; ctx.beginPath(); ctx.arc(0, 0, r * 0.74, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
-  ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const size = [...text].length > 1 ? r * 0.62 : r * 0.9;
-  ctx.font = `900 ${size}px ${FONT}`; ctx.fillText(text, 0, r * 0.04);
+  if (!drawIcon(ctx, text, 0, 0, r * 1.0, color)) {
+    ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const size = [...text].length > 1 ? r * 0.62 : r * 0.9;
+    ctx.font = `900 ${size}px ${FONT}`; ctx.fillText(text, 0, r * 0.04);
+  }
   ctx.restore();
 }
 
