@@ -65,7 +65,12 @@ function blobToDataUrl(blob) {
 // ---------- Supabase ----------
 class SupabaseStore {
   constructor(url, key) { this.mode = 'remote'; this.url = url.replace(/\/$/, ''); this.key = key; }
-  _h(extra = {}) { return { apikey: this.key, Authorization: `Bearer ${this.key}`, ...extra }; }
+  // 旧版 anon key 是 JWT（eyJ 开头），要同时放在 Authorization 里；新版 publishable key（sb_publishable_ 开头）只放 apikey
+  _h(extra = {}) {
+    const h = { apikey: this.key, ...extra };
+    if (this.key.startsWith('eyJ')) h.Authorization = `Bearer ${this.key}`;
+    return h;
+  }
   async _req(path, opts = {}) {
     const res = await fetch(`${this.url}/rest/v1/${path}`, { ...opts, headers: this._h({ 'Content-Type': 'application/json', ...(opts.headers || {}) }) });
     if (!res.ok) throw new Error(`网络开小差了（${res.status}），稍后再试`);
