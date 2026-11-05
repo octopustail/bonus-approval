@@ -30,7 +30,7 @@ const AV = ['#E8434F', '#3E5BF2', '#17A673', '#9B4DE0', '#E07A00', '#0E8BC0'];
 const avatar = (name, id) => `<span class="av" style="background:${AV[L.serialFor(id || name) % AV.length]}" aria-hidden="true">${esc(String(name).slice(-1))}</span>`;
 const topbar = () => '<div class="top"><span class="logo" aria-hidden="true">戳</span>集个戳戳</div>';
 const rewardText = c => `${esc(c.reward_name)}${c.reward_amount ? ` ¥${esc(c.reward_amount)}` : ''}`;
-const colsFor = n => (n <= 8 ? 4 : n <= 15 ? 5 : 6);
+const colsFor = n => (n <= 2 ? 3 : n <= 8 ? 4 : n <= 15 ? 5 : 6);
 function fmtTime(ts) { const d = new Date(ts + 8 * L.HOUR).toISOString(); return `${L.fmtDate(d.slice(0, 10))} ${d.slice(11, 16)}`; }
 
 function stampEl(s, cls = '') {
@@ -157,13 +157,16 @@ async function pageNew(params) {
     <form id="f" class="card" novalidate>
       <label class="f">选个模板</label>
       <div class="chips">${L.TEMPLATES.map(t => radio('theme', t.key, `${t.icon} ${t.name}`, t.key === v.theme)).join('')}</div>
-      <label class="f" for="goal">要坚持的事</label>
-      <input id="goal" type="text" maxlength="30" value="${esc(v.goal)}">
       <label class="f">节奏</label>
-      <div class="chips">${radio('freq', 'daily', '每天', v.freq_type === 'daily')}${radio('freq', 'weekly', '每周几次', v.freq_type === 'weekly')}</div>
-      <div id="n-wrap" class="chips" style="margin-top:8px">${[2, 3, 4, 5].map(n => radio('n', n, `每周 ${n} 次`, n === v.freq_n)).join('')}</div>
-      <div id="days" class="chips" style="margin-top:8px"></div>
-      <label class="f" for="reward">集满奖励自己</label>
+      <div class="chips">${radio('freq', 'daily', '每天一次', v.freq_type === 'daily')}${radio('freq', 'weekly', '每周几次', v.freq_type === 'weekly')}${radio('freq', 'once', '一次完成', v.freq_type === 'once')}</div>
+      <p class="hint" id="freq-hint"></p>
+      <div id="n-wrap"><label class="f">每周几次</label><div class="chips">${[2, 3, 4, 5].map(n => radio('n', n, `${n} 次`, n === v.freq_n)).join('')}</div></div>
+      <label class="f" for="goal" id="goal-label">要坚持的事</label>
+      <input id="goal" type="text" maxlength="30" value="${esc(v.goal)}">
+      <label class="f" id="days-label">坚持多久</label>
+      <div id="days" class="chips"></div>
+      <div id="custom-wrap" class="row" style="margin-top:8px"><input id="cd" type="number" inputmode="numeric" min="1" max="${L.MAX_DAYS}" style="width:110px" aria-label="自定义天数"><span>天（1–${L.MAX_DAYS}）</span></div>
+      <label class="f" for="reward" id="reward-label">集满奖励自己</label>
       <input id="reward" type="text" maxlength="24" placeholder="比如：一双新跑鞋" value="${esc(v.reward_name)}">
       <input id="amount" type="number" inputmode="decimal" min="0" placeholder="多少钱（选填）" value="${v.reward_amount ?? ''}" style="margin-top:8px">
       <label class="f" id="pv-label">预览</label>
@@ -171,34 +174,58 @@ async function pageNew(params) {
     </form>
     <div class="dock"><div class="in"><button class="btn" id="go">发卡，去找戳戳搭子</button></div></div>`;
   const f = $app.querySelector('#f');
-  let days = v.days;
+  const cd = f.querySelector('#cd');
+  // 天数：一个预设值，或者 'custom'
+  let pick = String(v.days);
+  let custom = L.periodsFor(v.freq_type).includes(v.days) ? '' : String(v.days);
+  if (custom) pick = 'custom';
+  cd.value = custom;
   const tpl = () => L.TEMPLATES.find(t => t.key === f.theme.value);
+  const daysNow = () => (pick === 'custom' ? Number(cd.value) : Number(pick));
   const paint = () => {
-    const weekly = f.freq.value === 'weekly';
-    f.querySelector('#n-wrap').hidden = !weekly;
-    const opts = weekly ? L.WEEKLY_PERIODS : L.DAILY_PERIODS;
-    if (!opts.includes(days)) days = opts[0];
-    f.querySelector('#days').innerHTML = opts.map(d => radio('days', d, `${d} 天`, d === days)).join('');
-    const c = { freq_type: weekly ? 'weekly' : 'daily', freq_n: Number(f.n.value), days, extra: 0 };
+    const freq = f.freq.value;
+    const once = freq === 'once';
+    f.querySelector('#n-wrap').hidden = freq !== 'weekly';
+    f.querySelector('#freq-hint').textContent = once ? '只要做成一次：提交证明，搭子盖上戳就能拿奖励' : freq === 'daily' ? '每天打卡一次，每次一个戳' : '一周里任选几天打卡，每次一个戳';
+    f.querySelector('#goal-label').textContent = once ? '要完成的事' : '要坚持的事';
+    f.querySelector('#days-label').textContent = once ? '多少天内完成' : '坚持多久';
+    f.querySelector('#reward-label').textContent = once ? '完成后奖励自己' : '集满奖励自己';
+    const opts = L.periodsFor(freq);
+    if (pick !== 'custom' && !opts.includes(Number(pick))) pick = String(opts[0]);
+    f.querySelector('#days').innerHTML = opts.map(d => radio('days', d, `${d} 天`, String(d) === pick)).join('') + radio('days', 'custom', '自定义', pick === 'custom');
+    f.querySelector('#custom-wrap').hidden = pick !== 'custom';
+    const days = daysNow();
+    const ok = L.validDays(days);
+    const c = { freq_type: freq, freq_n: Number(f.n.value), days: ok ? days : 7, extra: 0 };
     const target = L.targetOf(c);
-    f.querySelector('#pv-label').textContent = `预览：${target} 个格子，集满开礼物`;
+    f.querySelector('#pv-label').textContent = !ok ? '预览：先填一个 1–90 的天数'
+      : once ? `预览：${days} 天内完成，搭子盖 1 个戳就开礼物`
+      : freq === 'weekly' ? `预览：${days} 天里集 ${target} 个戳，集满开礼物` : `预览：${target} 个格子，集满开礼物`;
     const pv = f.querySelector('#pv');
     pv.style.setProperty('--cols', colsFor(target + 1));
     pv.innerHTML = Array.from({ length: target }, () => '<div class="slot"></div>').join('') + '<div class="slot gift">🎁</div>';
-    f.goal.placeholder = tpl().goal || '比如：每天弹 20 分钟吉他';
+    f.goal.placeholder = once ? '比如：考过雅思 7 分' : (tpl().goal || '比如：每天弹 20 分钟吉他');
   };
   paint();
-  f.addEventListener('change', e => { if (e.target.name === 'days') days = Number(e.target.value); paint(); });
+  f.addEventListener('change', e => {
+    if (e.target.name === 'days') { pick = e.target.value; if (pick === 'custom') setTimeout(() => cd.focus(), 0); }
+    paint();
+  });
+  cd.addEventListener('input', paint);
   $app.querySelector('#go').onclick = async e => {
-    const goal = f.goal.value.trim() || tpl().goal;
+    const freq = f.freq.value;
+    const once = freq === 'once';
+    const goal = f.goal.value.trim() || (once ? '' : tpl().goal);
     const reward = f.reward.value.trim();
-    if (!goal) return toast('写下要坚持的事');
+    const days = daysNow();
+    if (!goal) return toast(once ? '写下要完成的事' : '写下要坚持的事');
+    if (!L.validDays(days)) return toast(`天数填 1–${L.MAX_DAYS} 之间的整数`);
     if (!reward) return toast('写个奖励，集满了才有盼头');
-    const weekly = f.freq.value === 'weekly';
     const amount = f.amount.value === '' ? null : Number(f.amount.value);
     const card = {
-      id: uid(), owner_id: me.id, owner_name: me.name, theme: f.theme.value, goal, proof: tpl().proof,
-      freq_type: weekly ? 'weekly' : 'daily', freq_n: weekly ? Number(f.n.value) : 7, days, extra: 0,
+      id: uid(), owner_id: me.id, owner_name: me.name, theme: f.theme.value, goal,
+      proof: once ? '能证明你做到了的照片，比如成绩单、完赛照' : tpl().proof,
+      freq_type: freq, freq_n: freq === 'weekly' ? Number(f.n.value) : freq === 'daily' ? 7 : 1, days, extra: 0,
       reward_name: reward, reward_amount: Number.isFinite(amount) ? amount : null, abandoned_at: null, created_at: now(),
     };
     e.target.disabled = true;
@@ -259,14 +286,15 @@ async function pageCard(id, params) {
   const t = now();
   const sum = L.summarize(card, checkins, stamps, t);
   const ended = sum.phase === 'ended';
+  const once = card.freq_type === 'once';
   const pill = ended ? (sum.full ? '<span class="pill y">集满了</span>' : '<span class="pill">已结束</span>')
-    : sum.full ? '<span class="pill y">集满了</span>' : `<span class="pill">第 ${sum.dayIndex} 天</span>`;
+    : sum.full ? `<span class="pill y">${once ? '完成了' : '集满了'}</span>` : `<span class="pill">${once ? '进行中' : `第 ${sum.dayIndex} 天`}</span>`;
   let html = `<a class="back" href="#/">‹ 返回</a>`;
   if (!isOwner) html += `<p class="sub" style="margin-top:4px">${esc(card.owner_name)} 的集戳卡 · 你的专属戳「${esc(myBuddy.custom_stamp)}」</p>`;
 
   // 结束页
   if (ended) {
-    html += `<div class="done"><p class="big">${sum.full ? '集满了！' : `差 ${sum.missing} 个戳`}</p>
+    html += `<div class="done"><p class="big">${sum.full ? (once ? '搞定了！' : '集满了！') : once ? '这次没完成' : `差 ${sum.missing} 个戳`}</p>
       <p class="sub">${L.rhythmText(card)} · 集到 ${Math.min(sum.count, sum.target)} / ${sum.target} 个戳${sum.extra ? ` · 多集了 ${sum.extra} 个` : ''}</p></div>
       <div class="prize ${sum.full ? '' : 'miss'}"><div class="ico">${sum.full ? '🎁' : '🫶'}</div><b>${rewardText(card)}</b>
       <span style="font-size:13px">${card.abandoned_at ? '这张卡提前撕掉了，下次再来' : sum.full ? (isOwner ? '去买吧，这是你挣来的' : `${esc(card.owner_name)} 挣到了`) : '这次没集满，奖励先欠着'}</span></div>
@@ -276,8 +304,9 @@ async function pageCard(id, params) {
   html += `<div class="card"><div class="card-head"><p class="goal">${esc(card.goal)}</p>${pill}</div>
     <p class="sub">${L.rhythmText(card)}${ended ? '' : ` · 还剩 ${sum.daysLeft} 天`}</p>
     ${slotsHtml(card, sum, checkins, stamps)}
-    <p class="count"><span>已集 <b>${Math.min(sum.count, sum.target)}</b> / ${sum.target} 个戳</span><span>${sum.full ? '礼物已解锁' : `还差 ${sum.missing} 个`}</span></p>
-    <div class="reward-line"><span>集满奖励</span><b>${rewardText(card)}</b></div></div>`;
+    <p class="count">${once ? `<span>${sum.full ? '<b>已完成</b>，搭子盖上戳了' : sum.pending.length ? '已提交，<b>等搭子盖戳</b>' : '完成后提交证明，搭子盖上戳就开礼物'}</span>` : `<span>已集 <b>${Math.min(sum.count, sum.target)}</b> / ${sum.target} 个戳</span><span>${sum.full ? '礼物已解锁' : `还差 ${sum.missing} 个`}</span>`}</p>
+    ${sum.full ? '' : `<button class="link-btn" data-act="preview" style="padding:6px 0 0">预览${once ? '完成' : '集满'}后的分享卡</button>`}
+    <div class="reward-line"><span>${once ? '完成奖励' : '集满奖励'}</span><b>${rewardText(card)}</b></div></div>`;
 
   // 提示条
   const pendingRaises = raises.filter(r => r.status === 'pending');
@@ -287,7 +316,7 @@ async function pageCard(id, params) {
       html += `<div class="banner y">${avatar(r.user_name, r.user_id)} <b>${esc(r.user_name)}</b> 觉得太简单，想给你<b>加 ${L.RAISE_SLOTS} 格</b> 😈
         <div class="row"><button class="btn ghost" data-act="raise-no" data-rid="${esc(r.id)}">婉拒</button><button class="btn" data-act="raise-ok" data-rid="${esc(r.id)}" ${L.canRaise(card) ? '' : 'disabled'}>接受挑战</button></div></div>`;
     }
-    if (sum.full) html += `<div class="banner"><b>集满了！🎁 礼物已解锁。</b>还没到最后一天，继续打卡会算"多集的"。<button class="btn y sm" data-act="card">生成分享卡</button></div>`;
+    if (sum.full) html += `<div class="banner"><b>${once ? '搞定了！' : '集满了！'}🎁 礼物已解锁。</b>${once ? '' : '还没到最后一天，继续打卡会算"多集的"。'}<button class="btn y sm" data-act="card">生成分享卡</button></div>`;
     if (sum.todayState === 'nope') html += `<div class="banner">今天这张被盖了"这不算"，可以<b>再补交一次</b>。</div>`;
     if (sum.todayState === 'nope-final') html += `<div class="banner">今天补交的也没过，明天再来。</div>`;
   }
@@ -307,14 +336,14 @@ async function pageCard(id, params) {
   const sorted = [...checkins].sort((a, b) => b.created_at - a.created_at);
   html += `<h2 class="sec">打卡记录 <small>${checkins.length} 次</small></h2>`;
   html += sorted.length ? sorted.map(k => entryHtml(k, { stamps, sum, isOwner, isBuddy: !!myBuddy, t })).join('')
-    : `<p class="empty">${isOwner ? '还没打卡。做完今天的事，拍张照提交就行。' : `${esc(card.owner_name)} 还没打卡。`}</p>`;
+    : `<p class="empty">${isOwner ? (once ? '做成了就拍张照提交，让搭子盖戳。' : '还没打卡。做完今天的事，拍张照提交就行。') : `${esc(card.owner_name)} 还没打卡。`}</p>`;
   if (isOwner && !ended) html += `<button class="link-btn" data-act="abandon">撕掉这张卡</button>`;
 
   // 底部按钮
   let dock = '';
   if (isOwner) {
     if (ended) dock = `<button class="btn ghost" data-act="card">生成分享卡</button><a class="btn y" href="#/new?from=${esc(card.id)}">再发一张卡</a>`;
-    else if (sum.canCheckin) dock = `<button class="btn ghost" data-act="invite">叫搭子</button><a class="btn" href="#/c/${esc(card.id)}/checkin">${sum.attempt === 2 ? '补交今天的打卡' : '今天打卡，求盖戳'}</a>`;
+    else if (sum.canCheckin) dock = `<button class="btn ghost" data-act="invite">叫搭子</button><a class="btn" href="#/c/${esc(card.id)}/checkin">${sum.attempt === 2 ? '补交一次' : once ? '我完成了，求盖戳' : '今天打卡，求盖戳'}</a>`;
     else dock = `<button class="btn" data-act="invite">叫搭子来盖戳</button>`;
   } else {
     const waiting = L.waitingFor(me.id, sum, checkins, stamps, t);
@@ -353,6 +382,12 @@ async function pageCard(id, params) {
         if (!confirm('撕掉这张卡？已经集到的戳会保留，但这张卡就结束了。')) return;
         await store.update('cards', card.id, { abandoned_at: now() }); return render();
       }
+      if (act === 'preview') {
+        const url = drawShareCard(previewData(card, buddies, sum));
+        showModal(`<h3>${once ? '完成' : '集满'}后的分享卡长这样</h3><p class="hint">用你这张卡的搭子和专属戳模拟盖满。真集满时会按实际盖的戳生成，图上不会有"预览"字样。</p>
+          <img class="card-img" src="${url}" alt="分享卡预览"><button class="btn ghost" data-close>知道了</button>`);
+        return;
+      }
       if (act === 'card') {
         const out = $app.querySelector('#card-out') || (() => { const d = document.createElement('div'); d.id = 'card-out'; $app.querySelector('.card').before(d); return d; })();
         const url = drawShareCard({ card, sum, stamps, buddies });
@@ -361,6 +396,21 @@ async function pageCard(id, params) {
       }
     } catch (err) { toast(err.message); b.disabled = false; }
   };
+}
+
+// 预览：用搭子的专属戳和系统戳把格子盖满
+function previewData(card, buddies, sum) {
+  const pool = [...buddies.map(b => ({ text: b.custom_stamp, color: L.customColorFor(b.user_id), user_id: b.user_id, user_name: b.user_name })),
+    ...L.SYSTEM_STAMPS.map(s => ({ ...s, user_id: 'sys', user_name: '' }))];
+  const stamped = [], stamps = [];
+  for (let i = 0; i < sum.target; i++) {
+    const k = { id: `pv-k${i}`, date: L.addDays(sum.win.start, i), created_at: 0 };
+    const p = pool[i % pool.length];
+    stamped.push(k);
+    stamps.push({ id: `pv-s${i}`, checkin_id: k.id, kind: 'stamp', text: p.text, color: p.color, user_id: p.user_id, user_name: p.user_name });
+  }
+  return { card, buddies, stamps, preview: true,
+    sum: { ...sum, stamped, count: sum.target, full: true, missing: 0, extra: 0 } };
 }
 
 // ---------- 搭子邀请 ----------
@@ -374,7 +424,7 @@ function pageInvite({ card, buddies, checkins, stamps }) {
     <p class="sub">接下后，Ta 每次打卡都等你来盖戳</p>
     <div class="card"><div class="card-head"><p class="goal">${esc(card.goal)}</p><span class="pill">${L.rhythmText(card)}</span></div>
       ${slotsHtml(card, sum, checkins, stamps)}
-      <div class="reward-line"><span>集满奖励</span><b>${rewardText(card)}</b></div></div>
+      <div class="reward-line"><span>${card.freq_type === 'once' ? '完成奖励' : '集满奖励'}</span><b>${rewardText(card)}</b></div></div>
     ${buddies.length ? `<h2 class="sec">已经接下的搭子</h2><div class="buddies">${buddies.map(b => `<span class="buddy-chip">${avatar(b.user_name, b.user_id)}${esc(b.user_name)}</span>`).join('')}</div>` : ''}
     <div class="card"><label class="f" for="cs">刻一个你的专属戳</label>
       <div class="my-stamp"><div class="preview" id="cs-pv"></div>
@@ -461,12 +511,12 @@ async function pageCheckin(id) {
   if (!sum.canCheckin) return go(`#/c/${id}`);
   document.body.classList.remove('buddy');
   $app.innerHTML = `<a class="back" href="#/c/${esc(id)}">‹ 返回</a>
-    <p class="h1">${sum.attempt === 2 ? '补交今天的打卡' : '今天打卡'}</p>
-    <p class="sub">第 ${sum.dayIndex} 天 · 拍张照，让搭子盖戳</p>
+    <p class="h1">${sum.attempt === 2 ? '补交一次' : card.freq_type === 'once' ? '提交完成证明' : '今天打卡'}</p>
+    <p class="sub">${card.freq_type === 'once' ? `${esc(card.goal)} · 还剩 ${sum.daysLeft} 天` : `第 ${sum.dayIndex} 天`} · 拍张照，让搭子盖戳</p>
     <label class="photo-pick" style="margin-top:12px"><span aria-hidden="true">📷</span>拍照或选一张：${esc(card.proof || '能证明你做到了的照片')}
       <input id="pic" type="file" accept="image/*"><img id="pv" alt="打卡照片预览" hidden></label>
     <label class="f" for="note">说一句（选填）</label>
-    <input id="note" type="text" maxlength="40" placeholder="比如：今天跑了 5 公里，腿已废">
+    <input id="note" type="text" maxlength="40" placeholder="${card.freq_type === 'once' ? '比如：成绩出来了，7 分！' : '比如：今天跑了 5 公里，腿已废'}">
     <div class="dock"><div class="in"><button class="btn" id="go">提交，求盖戳 🙏</button></div></div>`;
   let blob = null;
   const pv = $app.querySelector('#pv');

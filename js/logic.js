@@ -5,7 +5,7 @@ export const HOUR = 3600 * 1000;
 export const DAY = 24 * HOUR;
 export const AUTO_STAMP_MS = 24 * HOUR; // 打卡 24 小时没人盖戳，系统补一个默认戳
 export const RAISE_SLOTS = 2;            // 搭子"加 2 格"
-export const MAX_DAYS = 60;
+export const MAX_DAYS = 90;
 
 export const SYSTEM_STAMPS = [
   { key: 'juele', text: '绝了', color: '#E8434F' },
@@ -25,6 +25,9 @@ export const TEMPLATES = [
 ];
 export const DAILY_PERIODS = [7, 14, 21, 30];
 export const WEEKLY_PERIODS = [7, 14, 21, 28];
+export const ONCE_PERIODS = [7, 14, 30, 60];
+export function periodsFor(freqType) { return freqType === 'daily' ? DAILY_PERIODS : freqType === 'weekly' ? WEEKLY_PERIODS : ONCE_PERIODS; }
+export function validDays(n) { return Number.isInteger(n) && n >= 1 && n <= MAX_DAYS; }
 
 // 自定义戳：1–2 个字，不能是空白或符号；更严格的审核在小程序里走微信内容安全接口
 const BLOCK = ['傻', '逼', '死', '滚', '操', '妈的', '贱', '屎'];
@@ -44,17 +47,20 @@ export function diffDays(a, b) { return Math.round((Date.parse(b + 'T00:00:00Z')
 export function fmtDate(d) { const [, m, dd] = d.split('-'); return `${Number(m)}月${Number(dd)}日`; }
 
 // ---------- 卡片 ----------
+// 节奏：daily 每天一次 · weekly 每周 N 次（按天数折算）· once 一次完成
 export function targetOf(card) {
+  if (card.freq_type === 'once') return 1;
   if (card.freq_type === 'daily') return card.days;
-  const weeks = Math.ceil(card.days / 7);
-  return Math.min(card.freq_n * weeks + (card.extra || 0), card.days);
+  const base = Math.max(1, Math.round(card.freq_n * card.days / 7));
+  return Math.min(base + (card.extra || 0), card.days);
 }
 export function windowOf(card) {
   const start = bjDate(card.created_at);
   return { start, end: addDays(start, card.days - 1) };
 }
 export function rhythmText(card) {
-  return card.freq_type === 'daily' ? `每天 · ${card.days} 天` : `每周 ${card.freq_n} 次 · ${card.days} 天`;
+  if (card.freq_type === 'once') return `一次完成 · ${card.days} 天内`;
+  return card.freq_type === 'daily' ? `每天一次 · ${card.days} 天` : `每周 ${card.freq_n} 次 · ${card.days} 天`;
 }
 // 加 2 格：每天模式延长 2 天；每周模式目标 +2（不超过天数）
 export function applyRaise(card) {
@@ -62,6 +68,7 @@ export function applyRaise(card) {
   return { extra: (card.extra || 0) + RAISE_SLOTS };
 }
 export function canRaise(card) {
+  if (card.freq_type === 'once') return false;
   if (card.freq_type === 'daily') return card.days + RAISE_SLOTS <= MAX_DAYS;
   return targetOf(card) + RAISE_SLOTS <= card.days;
 }
@@ -98,7 +105,9 @@ export function summarize(card, checkins, stamps, now) {
     todayState = st === 'nope' ? (todays.length < 2 ? 'nope' : 'nope-final') : st;
   }
   const active = !ended;
-  const canCheckin = active && (todayState === 'none' || todayState === 'nope');
+  // 一次完成：已经盖上、或者还有一份在等盖戳，就不用再交
+  const onceBlocked = card.freq_type === 'once' && (count >= target || pending.length > 0);
+  const canCheckin = active && !onceBlocked && (todayState === 'none' || todayState === 'nope');
   const attempt = todayState === 'nope' ? 2 : 1;
   const dayIndex = Math.min(Math.max(diffDays(win.start, today) + 1, 1), card.days);
   const daysLeft = active ? diffDays(today, win.end) + 1 : 0;

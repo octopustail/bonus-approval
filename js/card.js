@@ -26,7 +26,8 @@ function stamp(ctx, cx, cy, r, text, color, tiltDeg) {
   ctx.restore();
 }
 
-export function drawShareCard({ card, sum, stamps, buddies }) {
+export function drawShareCard({ card, sum, stamps, buddies, preview = false }) {
+  const once = card.freq_type === 'once';
   const W = 1080, H = 1440;
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const ctx = c.getContext('2d');
@@ -35,13 +36,13 @@ export function drawShareCard({ card, sum, stamps, buddies }) {
   // 标题
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = INK;
   ctx.font = `900 96px ${FONT}`;
-  ctx.fillText(sum.full ? '集满了！' : `差 ${sum.missing} 个戳`, 80, 190);
+  ctx.fillText(sum.full ? (once ? '搞定了！' : '集满了！') : once ? '这次没完成' : `差 ${sum.missing} 个戳`, 80, 190);
   ctx.font = `800 52px ${FONT}`;
   ctx.fillText(fit(ctx, sum.full ? `换到${card.reward_name}` : '这次先欠着，下次一定', W - 160), 80, 272);
 
   // 卡片
   const cx = 64, cw = W - 128;
-  const cols = sum.target + 1 <= 8 ? 4 : sum.target + 1 <= 15 ? 5 : 6;
+  const cols = sum.target + 1 <= 2 ? 3 : sum.target + 1 <= 8 ? 4 : sum.target + 1 <= 15 ? 5 : 6;
   const rows = Math.ceil((sum.target + 1) / cols);
   const gap = 26, inner = cw - 112;
   const cell = (inner - gap * (cols - 1)) / cols;
@@ -54,7 +55,7 @@ export function drawShareCard({ card, sum, stamps, buddies }) {
   ctx.fillStyle = INK; ctx.font = `900 56px ${FONT}`;
   ctx.fillText(fit(ctx, card.goal, inner), cx + 56, cy + 104);
   ctx.fillStyle = MUTED; ctx.font = `500 34px ${FONT}`;
-  ctx.fillText(`${L.rhythmText(card)} · 集到 ${Math.min(sum.count, sum.target)} / ${sum.target} 个戳${sum.extra ? ` · 多集 ${sum.extra} 个` : ''}`, cx + 56, cy + 160);
+  ctx.fillText(once ? `${L.rhythmText(card)} · ${sum.full ? '搭子盖戳认证' : '没赶上'}` : `${L.rhythmText(card)} · 集到 ${Math.min(sum.count, sum.target)} / ${sum.target} 个戳${sum.extra ? ` · 多集 ${sum.extra} 个` : ''}`, cx + 56, cy + 160);
 
   const gx = cx + 56, gy = cy + 210;
   const filled = sum.stamped.slice(0, sum.target);
@@ -83,7 +84,7 @@ export function drawShareCard({ card, sum, stamps, buddies }) {
   const ry = gy + gridH + 40;
   ctx.fillStyle = '#F4F8F6'; rr(ctx, cx + 56, ry, inner, 70, 22); ctx.fill();
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = MUTED; ctx.font = `500 32px ${FONT}`; ctx.fillText('集满奖励', cx + 84, ry + 36);
+  ctx.fillStyle = MUTED; ctx.font = `500 32px ${FONT}`; ctx.fillText(once ? '完成奖励' : '集满奖励', cx + 84, ry + 36);
   ctx.textAlign = 'right'; ctx.fillStyle = INK; ctx.font = `800 34px ${FONT}`;
   ctx.fillText(fit(ctx, card.reward_name + (card.reward_amount ? ` ¥${card.reward_amount}` : ''), inner - 220), cx + 56 + inner - 28, ry + 36);
 
@@ -101,5 +102,10 @@ export function drawShareCard({ card, sum, stamps, buddies }) {
   ctx.font = `900 30px ${FONT}`; ctx.fillText('集个', 0, -16); ctx.fillText('戳戳', 0, 22);
   ctx.restore();
 
+  if (preview) {
+    ctx.save(); ctx.translate(W / 2, H / 2); ctx.rotate(-0.5);
+    ctx.fillStyle = 'rgba(34,34,34,0.10)'; ctx.font = `900 260px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('预览', 0, 0); ctx.restore();
+  }
   return c.toDataURL('image/png');
 }

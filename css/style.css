@@ -17,6 +17,7 @@
 body.buddy { --bg: #FFF4E5; --edge: #EAD9BF; --muted: #7A6345; }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--font); transition: background .2s; }
 main { max-width: 480px; margin: 0 auto; padding: 0 16px calc(100px + env(safe-area-inset-bottom)); }

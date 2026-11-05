@@ -78,6 +78,25 @@ test('别人盖过也能再叠一个戳，24 小时后就不能盖了', () => {
   assert.equal(L.canStampOn('u2', k, s, st, k.created_at + 25 * L.HOUR), false);
 });
 
+test('自定义天数：每周模式按比例折算格子数', () => {
+  assert.equal(L.targetOf(card({ freq_type: 'weekly', freq_n: 3, days: 10 })), 4);
+  assert.equal(L.targetOf(card({ freq_type: 'weekly', freq_n: 2, days: 3 })), 1);
+  assert.equal(L.targetOf(card({ days: 45 })), 45);
+  assert.equal(L.validDays(90), true); assert.equal(L.validDays(91), false); assert.equal(L.validDays(0), false);
+});
+
+test('一次完成：1 个格子，盖上就集满，之后不用再交', () => {
+  const c = card({ freq_type: 'once', days: 30 });
+  assert.equal(L.targetOf(c), 1); assert.equal(L.canRaise(c), false);
+  const k = ck('2026-11-08');
+  let s = L.summarize(c, [k], [], k.created_at + L.HOUR);
+  assert.equal(s.canCheckin, false, '等盖戳时不能重复交');
+  s = L.summarize(c, [k], [stamp(k)], k.created_at + 2 * L.DAY);
+  assert.equal(s.full, true); assert.equal(s.canCheckin, false); assert.equal(s.phase, 'active');
+  const s2 = L.summarize(c, [k], [stamp(k, 'nope')], k.created_at + L.HOUR);
+  assert.equal(s2.canCheckin, true, '这不算可以当天补交');
+});
+
 test('撕卡 = 立即结束', () => {
   const s = L.summarize(card({ abandoned_at: T0 + L.HOUR }), [], [], T0 + L.HOUR);
   assert.equal(s.phase, 'ended'); assert.equal(s.full, false);
