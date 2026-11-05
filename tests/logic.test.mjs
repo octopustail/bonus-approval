@@ -2,96 +2,92 @@ import assert from 'node:assert/strict';
 import * as L from '../js/logic.js';
 
 const T0 = Date.parse('2026-11-05T02:00:00Z'); // 北京时间 11-05 10:00
-const ch = (o = {}) => ({ id: 'c1', days: 7, freq_type: 'daily', freq_n: 7, submitted_at: T0, ...o });
-const rv = (o) => ({ id: Math.random().toString(36), target_type: 'challenge', ...o });
+const card = (o = {}) => ({ id: 'c1', days: 7, freq_type: 'daily', freq_n: 7, extra: 0, created_at: T0, ...o });
+const ck = (date, o = {}) => ({ id: 'k-' + date + (o.attempt || 1), date, attempt: 1, created_at: Date.parse(date + 'T02:00:00Z'), ...o });
+const stamp = (k, kind = 'stamp', user = 'u1') => ({ checkin_id: k.id, kind, user_id: user });
+const days = n => Array.from({ length: n }, (_, i) => L.addDays('2026-11-05', i));
 
 let n = 0;
 const test = (name, fn) => { fn(); n++; console.log('ok -', name); };
 
-test('bjDate 跨日', () => {
-  assert.equal(L.bjDate(Date.parse('2026-11-05T16:30:00Z')), '2026-11-06');
-  assert.equal(L.addDays('2026-11-30', 1), '2026-12-01');
+test('格子数：每天 = 天数；每周 = 次数 × 周数（不超过天数）', () => {
+  assert.equal(L.targetOf(card()), 7);
+  assert.equal(L.targetOf(card({ freq_type: 'weekly', freq_n: 3, days: 14 })), 6);
+  assert.equal(L.targetOf(card({ freq_type: 'weekly', freq_n: 6, days: 7, extra: 2 })), 7);
 });
 
-test('立项：无人审批 48 小时内为 pending，之后自动通过', () => {
-  assert.equal(L.challengeApproval(ch(), [], T0 + 47 * L.HOUR).state, 'pending');
-  const a = L.challengeApproval(ch(), [], T0 + 48 * L.HOUR);
-  assert.equal(a.state, 'approved'); assert.equal(a.auto, true);
+test('发卡当天开始，不用等审批', () => {
+  const s = L.summarize(card(), [], [], T0);
+  assert.equal(s.win.start, '2026-11-05'); assert.equal(s.phase, 'active'); assert.equal(s.canCheckin, true);
 });
 
-test('立项：任意一人通过即通过；最新为驳回则驳回', () => {
-  const a = L.challengeApproval(ch(), [rv({ result: 'reject', created_at: T0 + 1 }), rv({ result: 'pass', created_at: T0 + 2 })], T0 + 3);
-  assert.equal(a.state, 'approved');
-  const b = L.challengeApproval(ch(), [rv({ result: 'reject', created_at: T0 + 1 })], T0 + 49 * L.HOUR);
-  assert.equal(b.state, 'rejected');
+test('盖戳：没人盖 24 小时内等待，之后默认戳', () => {
+  const k = ck('2026-11-05');
+  assert.equal(L.checkinResult(k, [], k.created_at + 23 * L.HOUR).status, 'pending');
+  const r = L.checkinResult(k, [], k.created_at + 24 * L.HOUR);
+  assert.equal(r.status, 'stamped'); assert.equal(r.auto, true);
 });
 
-test('立项：重新提交后旧审批作废', () => {
-  const c = ch({ submitted_at: T0 + 100 });
-  assert.equal(L.challengeApproval(c, [rv({ result: 'reject', created_at: T0 + 1 })], T0 + 200).state, 'pending');
+test('盖戳：多数决，平票算盖上', () => {
+  const k = ck('2026-11-05');
+  assert.equal(L.checkinResult(k, [stamp(k), stamp(k, 'nope', 'u2')], T0).status, 'stamped');
+  assert.equal(L.checkinResult(k, [stamp(k, 'nope'), stamp(k, 'nope', 'u2'), stamp(k, 'stamp', 'u3')], T0).status, 'nope');
 });
 
-test('立项：接受加码视为通过', () => {
-  const a = L.challengeApproval(ch({ raise_accepted_at: T0 + 10 }), [rv({ result: 'raise', created_at: T0 + 5, raise_days: 14 })], T0 + 20);
-  assert.equal(a.state, 'approved'); assert.equal(a.approvedAt, T0 + 10);
+test('"这不算"当天能补交一次，第二次还不算就结束', () => {
+  const k1 = ck('2026-11-05');
+  let s = L.summarize(card(), [k1], [stamp(k1, 'nope')], T0 + L.HOUR);
+  assert.equal(s.todayState, 'nope'); assert.equal(s.canCheckin, true); assert.equal(s.attempt, 2);
+  const k2 = ck('2026-11-05', { attempt: 2, created_at: T0 + 2 * L.HOUR });
+  s = L.summarize(card(), [k1, k2], [stamp(k1, 'nope'), stamp(k2, 'nope')], T0 + 3 * L.HOUR);
+  assert.equal(s.todayState, 'nope-final'); assert.equal(s.canCheckin, false);
 });
 
-test('日报：多数票，平票通过，24 小时自动通过', () => {
-  const ck = { id: 'k1', created_at: T0 };
-  const r = (res) => ({ target_type: 'checkin', target_id: 'k1', result: res });
-  assert.equal(L.checkinStatus(ck, [], T0 + L.HOUR).status, 'pending');
-  assert.equal(L.checkinStatus(ck, [], T0 + 24 * L.HOUR).status, 'pass');
-  assert.equal(L.checkinStatus(ck, [r('pass'), r('reject')], T0).status, 'pass');
-  assert.equal(L.checkinStatus(ck, [r('reject'), r('reject'), r('pass')], T0).status, 'reject');
+test('集满：每天模式 7 天全盖上', () => {
+  const ks = days(7).map(d => ck(d));
+  const s = L.summarize(card(), ks, ks.map(k => stamp(k)), T0 + 8 * L.DAY);
+  assert.equal(s.phase, 'ended'); assert.equal(s.full, true); assert.equal(s.count, 7);
 });
 
-function run(c, dates, now, extraReviews = []) {
-  const reviews = [rv({ result: 'pass', created_at: T0 }), ...extraReviews];
-  const checkins = dates.map((d, i) => ({ id: 'k' + i, date: d, attempt: 1, created_at: T0 }));
-  return L.summarize(c, reviews, checkins, now);
-}
-const dates = (start, idx) => idx.map(i => L.addDays(start, i));
-const END7 = T0 + 8 * L.DAY;
-
-test('每天模式：全勤零驳回 = 卓越', () => {
-  const s = run(ch(), dates('2026-11-05', [0, 1, 2, 3, 4, 5, 6]), END7);
-  assert.equal(s.phase, 'ended'); assert.equal(s.comp.rate, 1); assert.equal(s.grade.name, '卓越');
+test('每周模式可以提前集满，超额照样记', () => {
+  const c = card({ freq_type: 'weekly', freq_n: 3 });
+  const ks = days(5).map(d => ck(d));
+  const s = L.summarize(c, ks, ks.map(k => stamp(k)), T0 + 4 * L.DAY + L.HOUR);
+  assert.equal(s.phase, 'active'); assert.equal(s.full, true); assert.equal(s.extra, 2);
 });
 
-test('每天模式：6/7 = 符合预期，5/7 = 需改进', () => {
-  assert.equal(run(ch(), dates('2026-11-05', [0, 1, 2, 3, 4, 5]), END7).grade.name, '符合预期');
-  assert.equal(run(ch(), dates('2026-11-05', [0, 1, 2, 3, 4]), END7).grade.name, '需改进');
+test('结束时还在等的打卡算盖上；没集满显示差几个', () => {
+  const ks = days(5).map(d => ck(d));
+  const s = L.summarize(card(), ks, [], T0 + 7 * L.DAY + 23 * L.HOUR);
+  assert.equal(s.phase, 'ended'); assert.equal(s.count, 5); assert.equal(s.missing, 2); assert.equal(s.full, false);
 });
 
-test('每周 3 次：多打的卡计入，可超过 100%', () => {
-  const s = run(ch({ freq_type: 'weekly', freq_n: 3 }), dates('2026-11-05', [0, 1, 2, 3]), END7);
-  assert.equal(s.comp.done, 4); assert.equal(L.rateText(s.comp.rate), '133%'); assert.equal(s.grade.name, '卓越');
+test('加 2 格：每天模式延长 2 天，每周模式目标 +2', () => {
+  assert.deepEqual(L.applyRaise(card()), { days: 9 });
+  assert.deepEqual(L.applyRaise(card({ freq_type: 'weekly', freq_n: 3, days: 14 })), { extra: 2 });
+  assert.equal(L.canRaise(card({ freq_type: 'weekly', freq_n: 3, days: 7 })), true);
+  assert.equal(L.canRaise(card({ freq_type: 'weekly', freq_n: 6, days: 7 })), false);
 });
 
-test('每周模式：某周断档时，其他周超额不计入', () => {
-  const c = ch({ days: 14, freq_type: 'weekly', freq_n: 3 });
-  const s = run(c, dates('2026-11-05', [7, 8, 9, 10, 11, 12, 13]), T0 + 15 * L.DAY);
-  assert.equal(s.comp.capped, true); assert.equal(s.comp.done, 3); assert.equal(L.rateText(s.comp.rate), '50%');
+test('别人盖过也能再叠一个戳，24 小时后就不能盖了', () => {
+  const k = ck('2026-11-05');
+  const st = [stamp(k, 'stamp', 'u1')];
+  const s = L.summarize(card(), [k], st, k.created_at + L.HOUR);
+  assert.equal(L.canStampOn('u2', k, s, st, k.created_at + L.HOUR), true);
+  assert.equal(L.canStampOn('u1', k, s, st, k.created_at + L.HOUR), false);
+  assert.equal(L.canStampOn('u2', k, s, st, k.created_at + 25 * L.HOUR), false);
 });
 
-test('主动放弃 = 毕业', () => {
-  const s = run(ch({ abandoned_at: T0 + L.DAY }), dates('2026-11-05', [0]), T0 + L.DAY);
-  assert.equal(s.phase, 'ended'); assert.equal(s.grade.name, '毕业');
+test('撕卡 = 立即结束', () => {
+  const s = L.summarize(card({ abandoned_at: T0 + L.HOUR }), [], [], T0 + L.HOUR);
+  assert.equal(s.phase, 'ended'); assert.equal(s.full, false);
 });
 
-test('当天被驳回可重交一次；第二次仍被驳回记为未完成', () => {
-  const c = ch();
-  const reviews = [rv({ result: 'pass', created_at: T0 }),
-    { target_type: 'checkin', target_id: 'a1', result: 'reject' }];
-  const ck1 = [{ id: 'a1', date: '2026-11-05', attempt: 1, created_at: T0 }];
-  let s = L.summarize(c, reviews, ck1, T0 + L.HOUR);
-  assert.equal(s.todayStatus.status, 'rejected');
-  assert.deepEqual(L.canSubmitToday(s), { ok: true, attempt: 2 });
-  const ck2 = [...ck1, { id: 'a2', date: '2026-11-05', attempt: 2, created_at: T0 + 2 * L.HOUR }];
-  reviews.push({ target_type: 'checkin', target_id: 'a2', result: 'reject' });
-  s = L.summarize(c, reviews, ck2, T0 + 3 * L.HOUR);
-  assert.equal(s.todayStatus.status, 'missed');
-  assert.equal(L.canSubmitToday(s).ok, false);
+test('专属戳：1–2 个字，挡掉符号和脏字', () => {
+  assert.equal(L.validCustomStamp('猛').ok, true);
+  assert.equal(L.validCustomStamp('好家伙').ok, false);
+  assert.equal(L.validCustomStamp('<b').ok, false);
+  assert.equal(L.validCustomStamp('傻').ok, false);
 });
 
 console.log(`\n${n} tests passed`);

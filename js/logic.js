@@ -1,183 +1,132 @@
-// 奖金请批准 · 共用业务逻辑（纯函数，H5 与小程序共用）
-// 所有时间戳为毫秒；所有日期为北京时间 YYYY-MM-DD 字符串。
+// 集个戳戳 · 规则（纯函数，H5 与小程序共用）
+// 时间戳为毫秒；日期为北京时间 YYYY-MM-DD 字符串。
 
 export const HOUR = 3600 * 1000;
 export const DAY = 24 * HOUR;
-export const CHALLENGE_AUTO_PASS_MS = 48 * HOUR; // 立项 48 小时无人审批自动通过
-export const CHECKIN_AUTO_PASS_MS = 24 * HOUR;   // 日报 24 小时无人审批自动通过
+export const AUTO_STAMP_MS = 24 * HOUR; // 打卡 24 小时没人盖戳，系统补一个默认戳
+export const RAISE_SLOTS = 2;            // 搭子"加 2 格"
+export const MAX_DAYS = 60;
 
-export const REJECT_REASONS = ['颗粒度不够', '抓手在哪里', '没有形成闭环', '建议再对齐一下', '我看你是在摸鱼'];
+export const SYSTEM_STAMPS = [
+  { key: 'juele', text: '绝了', color: '#E8434F' },
+  { key: 'keyi', text: '可以', color: '#3E5BF2' },
+  { key: 'niu', text: '牛', color: '#17A673' },
+  { key: 'chong', text: '冲', color: '#9B4DE0' },
+  { key: 'wen', text: '稳', color: '#E07A00' },
+];
+export const AUTO_STAMP = { key: 'auto', text: '默认', color: '#A3ADB2' };
+export const CUSTOM_COLORS = ['#E8434F', '#3E5BF2', '#17A673', '#9B4DE0', '#E07A00', '#0E8BC0', '#D6336C'];
 
+export const TEMPLATES = [
+  { key: 'sport', icon: '🏃', name: '运动', goal: '每天运动 30 分钟', proof: '运动截图或自拍' },
+  { key: 'words', icon: '📖', name: '背单词', goal: '每天背 30 个单词', proof: '背单词 App 截图' },
+  { key: 'sleep', icon: '🌙', name: '早睡', goal: '12 点前上床', proof: '睡前截图，带上时间' },
+  { key: 'custom', icon: '✏️', name: '自定义', goal: '', proof: '能证明你做到了的照片' },
+];
 export const DAILY_PERIODS = [7, 14, 21, 30];
 export const WEEKLY_PERIODS = [7, 14, 21, 28];
 
+// 自定义戳：1–2 个字，不能是空白或符号；更严格的审核在小程序里走微信内容安全接口
+const BLOCK = ['傻', '逼', '死', '滚', '操', '妈的', '贱', '屎'];
+export function validCustomStamp(text) {
+  const t = String(text || '').trim();
+  const chars = [...t];
+  if (chars.length < 1 || chars.length > 2) return { ok: false, msg: '专属戳写 1–2 个字' };
+  if (/[\s<>"'&]/.test(t)) return { ok: false, msg: '专属戳不能有空格或符号' };
+  if (BLOCK.some(w => t.includes(w))) return { ok: false, msg: '换个友善点的字吧' };
+  return { ok: true, text: t };
+}
+
 // ---------- 日期 ----------
-export function bjDate(ts) {
-  return new Date(ts + 8 * HOUR).toISOString().slice(0, 10);
+export function bjDate(ts) { return new Date(ts + 8 * HOUR).toISOString().slice(0, 10); }
+export function addDays(dateStr, n) { return new Date(Date.parse(dateStr + 'T00:00:00Z') + n * DAY).toISOString().slice(0, 10); }
+export function diffDays(a, b) { return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / DAY); }
+export function fmtDate(d) { const [, m, dd] = d.split('-'); return `${Number(m)}月${Number(dd)}日`; }
+
+// ---------- 卡片 ----------
+export function targetOf(card) {
+  if (card.freq_type === 'daily') return card.days;
+  const weeks = Math.ceil(card.days / 7);
+  return Math.min(card.freq_n * weeks + (card.extra || 0), card.days);
+}
+export function windowOf(card) {
+  const start = bjDate(card.created_at);
+  return { start, end: addDays(start, card.days - 1) };
+}
+export function rhythmText(card) {
+  return card.freq_type === 'daily' ? `每天 · ${card.days} 天` : `每周 ${card.freq_n} 次 · ${card.days} 天`;
+}
+// 加 2 格：每天模式延长 2 天；每周模式目标 +2（不超过天数）
+export function applyRaise(card) {
+  if (card.freq_type === 'daily') return { days: Math.min(card.days + RAISE_SLOTS, MAX_DAYS) };
+  return { extra: (card.extra || 0) + RAISE_SLOTS };
+}
+export function canRaise(card) {
+  if (card.freq_type === 'daily') return card.days + RAISE_SLOTS <= MAX_DAYS;
+  return targetOf(card) + RAISE_SLOTS <= card.days;
 }
 
-export function addDays(dateStr, n) {
-  const t = Date.parse(dateStr + 'T00:00:00Z') + n * DAY;
-  return new Date(t).toISOString().slice(0, 10);
-}
-
-export function diffDays(a, b) {
-  // b - a，按天
-  return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / DAY);
-}
-
-export function fmtDate(dateStr) {
-  const [, m, d] = dateStr.split('-');
-  return `${Number(m)}月${Number(d)}日`;
-}
-
-// ---------- 立项审批 ----------
-// 返回 { state: 'pending'|'approved'|'rejected', approvedAt, auto, raises, latestReject }
-export function challengeApproval(ch, reviews, now) {
-  const rs = reviews
-    .filter(r => r.target_type === 'challenge' && r.created_at >= ch.submitted_at)
-    .sort((a, b) => a.created_at - b.created_at);
-  const passes = rs.filter(r => r.result === 'pass');
-  const raises = rs.filter(r => r.result === 'raise');
-  const rejects = rs.filter(r => r.result === 'reject');
-  const candidates = [];
-  if (passes.length) candidates.push({ at: passes[0].created_at, auto: false });
-  if (ch.raise_accepted_at && ch.raise_accepted_at >= ch.submitted_at) candidates.push({ at: ch.raise_accepted_at, auto: false });
-  if (candidates.length) {
-    const first = candidates.sort((a, b) => a.at - b.at)[0];
-    return { state: 'approved', approvedAt: first.at, auto: false, raises, latestReject: null };
+// ---------- 盖戳结果 ----------
+// 'stamped' | 'pending' | 'nope'；没人盖满 24 小时 = 默认戳
+export function checkinResult(ck, stamps, now, { settle = false } = {}) {
+  const mine = stamps.filter(s => s.checkin_id === ck.id);
+  const yes = mine.filter(s => s.kind === 'stamp').length;
+  const no = mine.filter(s => s.kind === 'nope').length;
+  if (yes + no === 0) {
+    if (settle || now - ck.created_at >= AUTO_STAMP_MS) return { status: 'stamped', auto: true, yes, no };
+    return { status: 'pending', auto: false, yes, no };
   }
-  const latest = rs[rs.length - 1];
-  if (latest && latest.result === 'reject') {
-    return { state: 'rejected', approvedAt: null, auto: false, raises, latestReject: latest };
-  }
-  if (now - ch.submitted_at >= CHALLENGE_AUTO_PASS_MS) {
-    return { state: 'approved', approvedAt: ch.submitted_at + CHALLENGE_AUTO_PASS_MS, auto: true, raises, latestReject: null };
-  }
-  return { state: 'pending', approvedAt: null, auto: false, raises, latestReject: rejects[rejects.length - 1] || null };
+  return { status: no > yes ? 'nope' : 'stamped', auto: false, yes, no };
 }
 
-// 原型阶段：审批通过当天即开始计周期
-export function challengeWindow(ch, approval) {
-  if (approval.state !== 'approved') return null;
-  const start = bjDate(approval.approvedAt);
-  const end = addDays(start, ch.days - 1);
-  return { start, end };
-}
-
-// ---------- 日报审批 ----------
-// 返回 { status: 'pending'|'pass'|'reject', auto, pass, reject }
-export function checkinStatus(ck, reviews, now) {
-  const rs = reviews.filter(r => r.target_type === 'checkin' && r.target_id === ck.id);
-  const pass = rs.filter(r => r.result === 'pass').length;
-  const reject = rs.filter(r => r.result === 'reject').length;
-  if (pass + reject === 0) {
-    if (now - ck.created_at >= CHECKIN_AUTO_PASS_MS) return { status: 'pass', auto: true, pass, reject };
-    return { status: 'pending', auto: false, pass, reject };
-  }
-  return { status: reject > pass ? 'reject' : 'pass', auto: false, pass, reject };
-}
-
-// 每一天的状态：取当天最后一次提交
-// 'done' | 'pending' | 'rejected'(当天还能重交) | 'missed' | 'today' | 'future' | 'rest'
-export function dayStatuses(ch, win, checkins, reviews, now) {
+export function summarize(card, checkins, stamps, now) {
+  const win = windowOf(card);
   const today = bjDate(now);
-  const out = [];
-  for (let i = 0; i < ch.days; i++) {
-    const date = addDays(win.start, i);
-    const list = checkins.filter(c => c.date === date).sort((a, b) => a.attempt - b.attempt || a.created_at - b.created_at);
-    const last = list[list.length - 1];
-    let status;
-    if (last) {
-      const st = checkinStatus(last, reviews, now).status;
-      if (st === 'pass') status = 'done';
-      else if (st === 'pending') status = 'pending';
-      else status = (date === today && list.length < 2) ? 'rejected' : 'missed';
-    } else if (date === today) status = 'today';
-    else if (date > today) status = 'future';
-    else status = ch.freq_type === 'weekly' ? 'rest' : 'missed';
-    out.push({ date, index: i, status, checkin: last || null, attempts: list.length });
+  const ended = !!card.abandoned_at || today > win.end;
+  const target = targetOf(card);
+  const results = new Map(checkins.map(k => [k.id, checkinResult(k, stamps, now, { settle: ended })]));
+  const byTime = [...checkins].sort((a, b) => a.created_at - b.created_at);
+  const stamped = byTime.filter(k => results.get(k.id).status === 'stamped');
+  const pending = byTime.filter(k => results.get(k.id).status === 'pending');
+  const count = stamped.length;
+
+  const todays = byTime.filter(k => k.date === today);
+  const last = todays[todays.length - 1];
+  let todayState = 'none';
+  if (last) {
+    const st = results.get(last.id).status;
+    todayState = st === 'nope' ? (todays.length < 2 ? 'nope' : 'nope-final') : st;
   }
-  return out;
-}
+  const active = !ended;
+  const canCheckin = active && (todayState === 'none' || todayState === 'nope');
+  const attempt = todayState === 'nope' ? 2 : 1;
+  const dayIndex = Math.min(Math.max(diffDays(win.start, today) + 1, 1), card.days);
+  const daysLeft = active ? diffDays(today, win.end) + 1 : 0;
 
-// ---------- 完成率与评级 ----------
-export const GRADES = [
-  { key: 'excellent', min: 1.2, name: '卓越', tag: '破格晋升', bonus: true },
-  { key: 'exceed', min: 1.0, name: '超出预期', tag: '', bonus: true },
-  { key: 'meet', min: 0.8, name: '符合预期', tag: '', bonus: true },
-  { key: 'improve', min: 0.5, name: '需改进', tag: '', bonus: false },
-  { key: 'graduate', min: -Infinity, name: '毕业', tag: '', bonus: false },
-];
-
-export function gradeFor(effectiveRate, abandoned) {
-  if (abandoned) return GRADES[GRADES.length - 1];
-  return GRADES.find(g => effectiveRate >= g.min);
-}
-
-// pending 的日报在结算时视为通过（与 24 小时自动放行一致）
-export function completion(ch, days, { settle = false } = {}) {
-  const counts = d => d.status === 'done' || (settle && d.status === 'pending');
-  const rejectCount = days.filter(d => d.status === 'missed' && d.checkin).length;
-  if (ch.freq_type === 'daily') {
-    const expected = ch.days;
-    const done = days.filter(counts).length;
-    const rate = done / expected;
-    const perfect = done === expected && rejectCount === 0 && !days.some(d => d.attempts > 1);
-    return { expected, done, rate, effectiveRate: perfect ? 1.2 : rate, perfect, capped: false };
-  }
-  const n = ch.freq_n;
-  const weeks = Math.ceil(ch.days / 7);
-  const perWeek = [];
-  for (let w = 0; w < weeks; w++) {
-    perWeek.push(days.slice(w * 7, w * 7 + 7).filter(counts).length);
-  }
-  const expected = n * weeks;
-  const hasGap = perWeek.some(c => c === 0);
-  const done = hasGap ? perWeek.reduce((s, c) => s + Math.min(c, n), 0) : perWeek.reduce((s, c) => s + c, 0);
-  const rate = done / expected;
-  return { expected, done, rate, effectiveRate: rate, perfect: false, capped: hasGap, perWeek };
-}
-
-// ---------- 汇总 ----------
-// 一次性算出页面需要的全部状态
-export function summarize(ch, reviews, checkins, now) {
-  const approval = challengeApproval(ch, reviews, now);
-  const win = challengeWindow(ch, approval);
-  if (!win) return { approval, win: null, phase: approval.state };
-  const days = dayStatuses(ch, win, checkins, reviews, now);
-  const today = bjDate(now);
-  const ended = !!ch.abandoned_at || today > win.end;
-  const comp = completion(ch, days, { settle: ended });
-  const grade = gradeFor(comp.effectiveRate, !!ch.abandoned_at);
-  const dayIndex = Math.min(Math.max(diffDays(win.start, today) + 1, 1), ch.days);
-  const todayStatus = days.find(d => d.date === today) || null;
   return {
-    approval, win, days, comp, grade,
-    phase: ended ? 'ended' : 'active',
-    dayIndex, todayStatus,
+    win, today, phase: ended ? 'ended' : 'active', target, count, results,
+    stamped, pending,
+    full: count >= target,
+    extra: Math.max(0, count - target),
+    missing: Math.max(0, target - count),
+    todayState, canCheckin, attempt, dayIndex, daysLeft,
   };
 }
 
-// 是否能提交今天的日报，以及第几次提交
-export function canSubmitToday(summary) {
-  if (!summary || summary.phase !== 'active' || !summary.todayStatus) return { ok: false };
-  const t = summary.todayStatus;
-  if (t.status === 'today') return { ok: true, attempt: 1 };
-  if (t.status === 'rejected') return { ok: true, attempt: 2 };
-  return { ok: false };
+// 搭子还能盖的打卡：打卡后 24 小时内、卡没结束、自己还没盖过（别人盖过也能再叠一个）
+export function canStampOn(userId, ck, summary, stamps, now) {
+  return summary.phase === 'active' && now - ck.created_at < AUTO_STAMP_MS
+    && !stamps.some(s => s.checkin_id === ck.id && s.user_id === userId);
 }
-
-export function rateText(rate) {
-  return Math.round(rate * 100) + '%';
-}
-
-export function krText(ch) {
-  return ch.freq_type === 'daily' ? '每天打卡' : `每周打卡 ${ch.freq_n} 次`;
+export function waitingFor(userId, summary, checkins, stamps, now) {
+  return checkins.filter(k => canStampOn(userId, k, summary, stamps, now)).sort((a, b) => a.created_at - b.created_at);
 }
 
 export function serialFor(id) {
   let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return String(h % 10000).padStart(4, '0');
+  for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return h;
 }
+// 每个戳的倾斜角度固定（同一个戳每次渲染都一样）
+export function tiltFor(id) { return (serialFor(id) % 31) - 15; }
+export function customColorFor(userId) { return CUSTOM_COLORS[serialFor(userId) % CUSTOM_COLORS.length]; }
