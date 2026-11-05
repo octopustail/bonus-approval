@@ -1,7 +1,8 @@
 import * as L from './logic.js';
 import { store, uid } from './store.js';
-import { drawShareCard } from './card.js';
-import { iconSvg, iconOf, stampLabel } from './icons.js';
+import { drawShareCard, drawAchievementCard } from './card.js';
+import { stampSvg, stampLabel, stampColor, pigeonSvg, animalSvg, badgeSvg, parseCode, ZHUPI, GU, ANIMALS } from './art.js';
+import { ACHIEVEMENTS, RARITY, computeAchievements, streakOf, streakTitle, guDays } from './achievements.js';
 
 const $app = document.getElementById('app');
 const DEMO = store.mode === 'local';
@@ -29,18 +30,17 @@ function go(hash) { if (location.hash === hash) render(); else location.hash = h
 const linkTo = id => `${location.origin}${location.pathname}#/c/${id}`;
 const AV = ['#E8434F', '#3E5BF2', '#17A673', '#9B4DE0', '#E07A00', '#0E8BC0'];
 const avatar = (name, id) => `<span class="av" style="background:${AV[L.serialFor(id || name) % AV.length]}" aria-hidden="true">${esc(String(name).slice(-1))}</span>`;
-const topbar = () => '<div class="top"><span class="logo" aria-hidden="true">戳</span>集个戳戳</div>';
+const topbar = () => `<div class="top"><span class="logo-gu">${pigeonSvg('normal', '', 34)}</span>集个戳戳<a class="top-link" href="#/me">我的成就</a></div>`;
 const rewardText = c => `${esc(c.reward_name)}${c.reward_amount ? ` ¥${esc(c.reward_amount)}` : ''}`;
 const colsFor = n => (n <= 2 ? 3 : n <= 8 ? 4 : n <= 15 ? 5 : 6);
 function fmtTime(ts) { const d = new Date(ts + 8 * L.HOUR).toISOString(); return `${L.fmtDate(d.slice(0, 10))} ${d.slice(11, 16)}`; }
 
 function stampEl(s, cls = '') {
-  const icon = iconOf(s.text);
-  const face = icon ? iconSvg(s.text) : esc(s.text);
-  return `<span class="stamp ${icon ? 'icon' : ''} ${cls}" style="--c:${s.color};--r:${L.tiltFor(s.id || s.text)}deg" ${icon ? `aria-label="${esc(icon.label)}"` : ''}>${face}${s.user_name ? `<small>${esc(s.user_name)}</small>` : ''}</span>`;
+  return `<span class="stamp ${cls}" style="--r:${L.tiltFor(s.id || s.text)}deg" role="img" aria-label="${esc(stampLabel(s.text))}">${stampSvg(s.text, stampColor(s.text, s.color), s.user_name || '')}</span>`;
 }
 function stampsOf(k, stamps) { return stamps.filter(s => s.checkin_id === k.id && s.kind === 'stamp').sort((a, b) => a.created_at - b.created_at); }
-function autoStamp(k) { return { ...L.AUTO_STAMP, id: 'auto-' + k.id, user_name: '系统' }; }
+function autoStamp(k) { return { id: 'auto-' + k.id, text: '@gu:auto', color: '#E8434F', user_name: '' }; }
+const guBubble = (expr, prop, text, size = 64) => `<div class="gu-say">${pigeonSvg(expr, prop, size)}<p>${text}</p></div>`;
 
 function showModal(html) {
   const m = document.getElementById('modal');
@@ -102,7 +102,7 @@ function renderDemoBar() {
 // ---------- 起个名字 ----------
 function nameGate() {
   $app.innerHTML = `${topbar()}
-    <div class="hero"><p class="h1">每天打卡，朋友盖戳。<br>集满了，奖励自己。</p></div>
+    <div class="hero">${guBubble('happy', '', '我是咕咕，专治各种"鸽了"。<br>每天打卡，朋友盖戳，集满了奖励自己。', 72)}</div>
     <div class="card"><label class="f" for="name">朋友怎么称呼你？</label>
       <input id="name" type="text" maxlength="10" placeholder="比如：小王" autocomplete="nickname">
       <p class="hint">会出现在你的集戳卡和盖的戳上</p>
@@ -139,13 +139,21 @@ async function pageHome() {
       <div class="s">${Math.min(s.count, s.target)} / ${s.target} 个戳${s.extra ? ` · 多集 ${s.extra} 个` : ''}${s.phase === 'ended' ? ' · 已结束' : ''}</div>${dotsHtml(s)}</a>` };
   };
   const list = arr => arr.sort((a, b) => b.hot - a.hot || b.at - a.at).map(x => x.html).join('');
+  const streak = streakOf(owned, t);
+  const got = computeAchievements(me.id, owned, buddying, t);
+  const owe = owned.filter(p => L.summarize(p.card, p.checkins, p.stamps, t).canCheckin).length;
+  const say = owe ? guBubble('guilty', 'guilty', `还有 <b>${owe} 张卡</b>今天没打卡。<br>咕咕盯着你呢，别鸽。`)
+    : streak ? guBubble('happy', '', `连戳 <b>${streak} 天</b>${streakTitle(streak) ? `，「${streakTitle(streak)}」` : ''}。<br>今天也没鸽，咕咕很欣慰。`)
+    : guBubble('normal', '', '每天打卡，朋友盖戳。<br>集满了，奖励自己。别鸽。');
   $app.innerHTML = `${topbar()}
-    <div class="hero"><p class="h1">每天打卡，朋友盖戳。<br>集满了，奖励自己。</p></div>
+    <div class="hero">${say}</div>
+    <a class="stats-strip" href="#/me"><span><b class="flame">${streak}</b> 天连戳</span><span><b>${got.size}</b> / ${ACHIEVEMENTS.length} 个成就</span><span class="go">去成就墙 ›</span></a>
     <a class="btn" href="#/new">发一张集戳卡</a>
     <h2 class="sec">我的卡 <small>${owned.length} 张</small></h2>
     ${owned.length ? list(owned.map(ownItem)) : '<p class="empty">还没有卡。想坚持什么，就发一张，再叫朋友来盖戳。</p>'}
     <h2 class="sec">我在帮盖戳 <small>${buddying.length} 张</small></h2>
     ${buddying.length ? list(buddying.map(budItem)) : '<p class="empty">朋友发来的集戳卡，接下后会出现在这里。</p>'}`;
+  announce(owned, buddying);
 }
 
 // ---------- 发卡 ----------
@@ -263,7 +271,7 @@ function entryHtml(k, ctx) {
   const { stamps, sum, isOwner, isBuddy } = ctx;
   const r = sum.results.get(k.id);
   const mine = stamps.filter(s => s.checkin_id === k.id);
-  const tag = r.status === 'pending' ? '<span class="pill ink">等盖戳</span>' : r.status === 'nope' ? '<span class="pill" style="color:#E8434F">这不算</span>' : r.auto ? '<span class="pill">默认戳</span>' : '<span class="pill y">盖上了</span>';
+  const tag = r.status === 'pending' ? '<span class="pill ink">等盖戳</span>' : r.status === 'nope' ? '<span class="pill" style="color:#E8434F">这不算</span>' : r.auto ? '<span class="pill">咕咕代盖</span>' : '<span class="pill y">盖上了</span>';
   const canStamp = isBuddy && !isOwner && L.canStampOn(me.id, k, sum, stamps, ctx.t);
   return `<article class="entry"><header><b>${L.fmtDate(k.date)}${k.attempt > 1 ? ' · 补交' : ''}</b>${tag}</header>
     ${k.image_url ? `<img src="${esc(k.image_url)}" alt="${L.fmtDate(k.date)}的打卡照片" loading="lazy">` : ''}
@@ -290,6 +298,7 @@ async function pageCard(id, params) {
   const sum = L.summarize(card, checkins, stamps, t);
   const ended = sum.phase === 'ended';
   const once = card.freq_type === 'once';
+  const gu = guDays(card, checkins, t);
   const pill = ended ? (sum.full ? '<span class="pill y">集满了</span>' : '<span class="pill">已结束</span>')
     : sum.full ? `<span class="pill y">${once ? '完成了' : '集满了'}</span>` : `<span class="pill">${once ? '进行中' : `第 ${sum.dayIndex} 天`}</span>`;
   let html = `<a class="back" href="#/">‹ 返回</a>`;
@@ -307,6 +316,7 @@ async function pageCard(id, params) {
   html += `<div class="card"><div class="card-head"><p class="goal">${esc(card.goal)}</p>${pill}</div>
     <p class="sub">${L.rhythmText(card)}${ended ? '' : ` · 还剩 ${sum.daysLeft} 天`}</p>
     ${slotsHtml(card, sum, checkins, stamps)}
+    ${gu ? `<p class="gu-days"><span class="gu-chip">咕</span>这张卡已经鸽了 <b>${gu}</b> 天${ended ? '' : '，今天别再鸽了'}</p>` : ''}
     <p class="count">${once ? `<span>${sum.full ? '<b>已完成</b>，搭子盖上戳了' : sum.pending.length ? '已提交，<b>等搭子盖戳</b>' : '完成后提交证明，搭子盖上戳就开礼物'}</span>` : `<span>已集 <b>${Math.min(sum.count, sum.target)}</b> / ${sum.target} 个戳</span><span>${sum.full ? '礼物已解锁' : `还差 ${sum.missing} 个`}</span>`}</p>
     ${sum.full ? '' : `<button class="link-btn" data-act="preview" style="padding:6px 0 0">预览${once ? '完成' : '集满'}后的分享卡</button>`}
     <div class="reward-line"><span>${once ? '完成奖励' : '集满奖励'}</span><b>${rewardText(card)}</b></div></div>`;
@@ -320,6 +330,7 @@ async function pageCard(id, params) {
         <div class="row"><button class="btn ghost" data-act="raise-no" data-rid="${esc(r.id)}">婉拒</button><button class="btn" data-act="raise-ok" data-rid="${esc(r.id)}" ${L.canRaise(card) ? '' : 'disabled'}>接受挑战</button></div></div>`;
     }
     if (sum.full) html += `<div class="banner"><b>${once ? '搞定了！' : '集满了！'}🎁 礼物已解锁。</b>${once ? '' : '还没到最后一天，继续打卡会算"多集的"。'}<button class="btn y sm" data-act="card">生成分享卡</button></div>`;
+    if (sum.canCheckin && sum.todayState === 'none' && !params.get('new')) html += `<div class="banner">${guBubble('guilty', 'guilty', once ? '做成了吗？做成了就拍张照，咕咕等着给你盖戳。' : '今天的格子还空着。<br>咕咕就在这儿，不走。', 56)}</div>`;
     if (sum.todayState === 'nope') html += `<div class="banner">今天这张被盖了"这不算"，可以<b>再补交一次</b>。</div>`;
     if (sum.todayState === 'nope-final') html += `<div class="banner">今天补交的也没过，明天再来。</div>`;
   }
@@ -333,7 +344,7 @@ async function pageCard(id, params) {
   html += `<h2 class="sec">戳戳搭子 <small>${buddies.length} 人</small></h2>`;
   html += buddies.length
     ? `<div class="buddies">${buddies.map(b => `<span class="buddy-chip">${avatar(b.user_name, b.user_id)}${esc(b.user_name)} · 专属戳「${esc(b.custom_stamp)}」</span>`).join('')}</div>`
-    : `<p class="empty">还没有搭子。没人盖的打卡，24 小时后系统会补一个灰色默认戳；叫朋友来盖更有意思。</p>`;
+    : `<p class="empty">还没有搭子。没人盖的打卡，24 小时后咕咕会替你盖，顺便阴阳一下没来的搭子。叫朋友来盖更有意思。</p>`;
 
   // 打卡记录
   const sorted = [...checkins].sort((a, b) => b.created_at - a.created_at);
@@ -359,6 +370,7 @@ async function pageCard(id, params) {
   html += `<div class="dock"><div class="in">${dock}</div></div>`;
   $app.innerHTML = html;
   if (params.get('celebrate') || (ended && sum.full && params.get('done'))) confetti();
+  store.listMine(me.id).then(({ owned, buddying }) => announce(owned, buddying)).catch(() => {});
 
   // 事件
   $app.onclick = async e => {
@@ -386,14 +398,18 @@ async function pageCard(id, params) {
         await store.update('cards', card.id, { abandoned_at: now() }); return render();
       }
       if (act === 'preview') {
-        const url = drawShareCard(previewData(card, buddies, sum));
+        b.disabled = true;
+        const url = await drawShareCard(previewData(card, buddies, sum));
+        b.disabled = false;
         showModal(`<h3>${once ? '完成' : '集满'}后的分享卡长这样</h3><p class="hint">用你这张卡的搭子和专属戳模拟盖满。真集满时会按实际盖的戳生成，图上不会有"预览"字样。</p>
           <img class="card-img" src="${url}" alt="分享卡预览"><button class="btn ghost" data-close>知道了</button>`);
         return;
       }
       if (act === 'card') {
         const out = $app.querySelector('#card-out') || (() => { const d = document.createElement('div'); d.id = 'card-out'; $app.querySelector('.card').before(d); return d; })();
-        const url = drawShareCard({ card, sum, stamps, buddies });
+        b.disabled = true;
+        const url = await drawShareCard({ card, sum, stamps, buddies });
+        b.disabled = false;
         out.innerHTML = `<img class="card-img" src="${url}" alt="${esc(card.owner_name)}的集戳卡：${esc(card.goal)}，集到 ${Math.min(sum.count, sum.target)}/${sum.target} 个戳"><p class="hint" style="text-align:center">长按图片保存，发朋友圈或小红书</p>`;
         out.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
@@ -403,8 +419,9 @@ async function pageCard(id, params) {
 
 // 预览：用搭子的专属戳和系统戳把格子盖满
 function previewData(card, buddies, sum) {
-  const pool = [...buddies.map(b => ({ text: b.custom_stamp, color: L.customColorFor(b.user_id), user_id: b.user_id, user_name: b.user_name })),
-    ...L.ICON_STAMPS.map(s => ({ ...s, user_id: 'sys', user_name: '' })), ...L.SYSTEM_STAMPS.map(s => ({ ...s, user_id: 'sys', user_name: '' }))];
+  const sys = t => ({ text: t, color: '#E8434F', user_id: 'sys', user_name: '' });
+  const mix = ['@zp:zhidao', '@gu:heart', '@an:cat', '@zp:zhunzou', '@gu:confetti', '@an:capy', '@gu:shades', '@zp:jitui', '@gu:cry', '@an:blob', '@zp:qinci', '@flower'].map(sys);
+  const pool = [...buddies.map(b => ({ text: b.custom_stamp, color: L.customColorFor(b.user_id), user_id: b.user_id, user_name: b.user_name })), ...mix];
   const stamped = [], stamps = [];
   for (let i = 0; i < sum.target; i++) {
     const k = { id: `pv-k${i}`, date: L.addDays(sum.win.start, i), created_at: 0 };
@@ -452,40 +469,141 @@ function pageInvite({ card, buddies, checkins, stamps }) {
 }
 
 // ---------- 盖戳弹层 ----------
-function openStampSheet({ card, checkin, myBuddy, stamps, wasFull }) {
-  const custom = { key: 'custom', text: myBuddy.custom_stamp, color: L.customColorFor(me.id) };
-  const options = [...L.ICON_STAMPS, ...L.SYSTEM_STAMPS, custom];
+const TABS = [
+  { key: 'zp', name: '朱批' },
+  { key: 'gu', name: '咕咕' },
+  { key: 'an', name: '动物园' },
+  { key: 'base', name: '基础' },
+];
+function stampOptions(myBuddy, unlockedCount) {
+  return {
+    zp: ZHUPI.map(z => ({ text: '@zp:' + z.key, color: '#C8102E', label: z.label })),
+    gu: GU.map(g => ({ text: '@gu:' + g.key, color: g.color, label: g.label })),
+    an: ANIMALS.map(a => ({ text: '@an:' + a.key, color: a.color, label: a.name, locked: unlockedCount < a.need, need: a.need })),
+    base: [...L.ICON_STAMPS.map(i => ({ ...i, label: stampLabel(i.text) })), ...L.SYSTEM_STAMPS.map(t => ({ ...t, label: '' })),
+      { text: myBuddy.custom_stamp, color: L.customColorFor(me.id), label: '我的专属' }],
+  };
+}
+async function openStampSheet({ card, checkin, myBuddy, stamps, wasFull }) {
+  let unlocked = 0;
+  try { const d = await store.listMine(me.id); unlocked = computeAchievements(me.id, d.owned, d.buddying, now()).size; } catch { /* 拿不到就当 0 */ }
+  const opts = stampOptions(myBuddy, unlocked);
+  let tab = lsGet('jgcc_tab', 'zp');
+  if (!opts[tab]) tab = 'zp';
+  let pick = opts[tab].find(o => !o.locked) || opts.zp[0];
   const m = showModal(`<h3>给 ${esc(card.owner_name)} 盖个戳</h3><p class="hint">${L.fmtDate(checkin.date)}的打卡${checkin.note ? `：${esc(checkin.note)}` : ''}</p>
     <div class="target" id="tg" style="${checkin.image_url ? `background-image:url('${esc(checkin.image_url)}')` : ''}"></div>
-    <div class="tray" role="group" aria-label="选一个戳">
-      ${options.map((o, i) => `<button type="button" data-i="${i}" aria-pressed="${i === 0}"><span class="ring">${stampEl({ id: 'o' + i, text: o.text, color: o.color })}</span>${o.key === 'custom' ? '我的专属' : iconOf(o.text) ? esc(stampLabel(o.text)) : ''}</button>`).join('')}
-      <button type="button" data-i="nope" aria-pressed="false"><span class="nope-ring">这不算</span></button>
-    </div>
+    <div class="tabs" role="tablist">${TABS.map(t => `<button type="button" role="tab" data-tab="${t.key}" aria-selected="${t.key === tab}">${t.name}</button>`).join('')}</div>
+    <div class="tray" id="tray" role="group" aria-label="选一个戳"></div>
     <label class="f" for="cm">说一句（选填）</label><input id="cm" type="text" maxlength="30" placeholder="比如：配速可以啊">
     <button class="btn red" id="press">按下去 · 啪！</button>`);
-  let pick = '0';
-  m.querySelectorAll('.tray button').forEach(b => b.onclick = () => {
-    pick = b.dataset.i;
-    m.querySelectorAll('.tray button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-    m.querySelector('#press').textContent = pick === 'nope' ? '这次不算' : '按下去 · 啪！';
+  const tray = m.querySelector('#tray');
+  const paintTray = () => {
+    const list = opts[tab];
+    tray.innerHTML = list.map((o, i) => `<button type="button" data-i="${i}" aria-pressed="${pick && pick.text === o.text}" ${o.locked ? 'disabled' : ''}>
+        <span class="ring">${stampEl({ id: 'o' + tab + i, text: o.text, color: o.color })}${o.locked ? '<span class="lock">🔒</span>' : ''}</span>
+        ${o.locked ? `再解锁 ${o.need - unlocked} 个成就` : esc(o.label)}</button>`).join('')
+      + '<button type="button" data-i="nope" aria-pressed="false"><span class="nope-ring">这不算</span>不算数</button>';
+    tray.querySelectorAll('button').forEach(b => b.onclick = () => {
+      if (b.disabled) return;
+      pick = b.dataset.i === 'nope' ? 'nope' : list[Number(b.dataset.i)];
+      tray.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      m.querySelector('#press').textContent = pick === 'nope' ? '这次不算' : '按下去 · 啪！';
+    });
+  };
+  m.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
+    tab = b.dataset.tab; lsSet('jgcc_tab', tab);
+    m.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+    paintTray();
   });
+  paintTray();
   m.querySelector('#press').onclick = async e => {
     e.target.disabled = true;
     const nope = pick === 'nope';
-    const o = nope ? null : options[Number(pick)];
+    const o = nope ? null : pick;
     const row = { id: uid(), card_id: card.id, checkin_id: checkin.id, user_id: me.id, user_name: me.name, kind: nope ? 'nope' : 'stamp',
-      text: o ? o.text : null, color: o ? o.color : null, comment: m.querySelector('#cm').value.trim(), created_at: now() };
+      text: o ? o.text : null, color: o ? stampColor(o.text, o.color) : null, comment: m.querySelector('#cm').value.trim(), created_at: now() };
     try {
       await store.insert('stamps', row);
       const tg = m.querySelector('#tg');
       tg.innerHTML = nope
-        ? '<div class="slam go"><span class="stamp" style="--c:#E8434F;--r:-6deg;border-style:dashed">这不算</span></div>'
+        ? '<div class="slam go"><span class="nope-ring big">这不算</span></div>'
         : `<div class="slam go">${stampEl({ id: row.id, text: o.text, color: o.color })}</div><span class="pa">啪！</span>`;
       if (navigator.vibrate) navigator.vibrate(nope ? 20 : [30, 30, 60]);
       const after = await store.getCard(card.id);
       const s2 = L.summarize(after.card, after.checkins, after.stamps, now());
       setTimeout(() => { m.hidden = true; render({ celebrate: !wasFull && s2.full }); }, 750);
     } catch (err) { toast(err.message); e.target.disabled = false; }
+  };
+}
+
+// ---------- 成就 ----------
+const seenKey = () => 'jgcc_seen_' + me.id;
+let announcing = false;
+function announce(owned, buddying) {
+  if (announcing || !document.getElementById('modal').hidden) return;
+  const got = computeAchievements(me.id, owned, buddying, now());
+  const seen = new Set(lsGet(seenKey(), []));
+  const fresh = ACHIEVEMENTS.filter(a => got.has(a.key) && !seen.has(a.key));
+  if (!fresh.length) return;
+  const markSeen = () => lsSet(seenKey(), [...new Set([...seen, ...got.keys()])]);
+  const order = { legend: 0, rare: 1, common: 2 };
+  fresh.sort((a, b) => order[a.rarity] - order[b.rarity]);
+  const a = fresh[0];
+  const before = got.size - fresh.length;
+  const newAnimals = ANIMALS.filter(x => x.need > before && x.need <= got.size);
+  announcing = true;
+  const m = showModal(`<div class="ach-pop"><div class="rays"></div>
+      <p class="kicker" style="color:${RARITY[a.rarity].color}">解锁成就 · ${RARITY[a.rarity].name}</p>
+      <div class="badge-big">${badgeSvg(a.glyph, a.rarity, 'on', 132)}</div>
+      <p class="ach-name">${esc(a.name)}</p><p class="ach-desc">${esc(a.desc)}</p>
+      ${fresh.length > 1 ? `<p class="hint">另外还解锁了 ${fresh.length - 1} 个成就，去成就墙看看。</p>` : ''}
+      ${newAnimals.length ? `<div class="new-animal">${newAnimals.map(x => animalSvg(x.key, 44)).join('')}<span>动物园新成员：<b>${newAnimals.map(x => x.name).join('、')}</b>，盖戳时可以用了</span></div>` : ''}
+      <button class="btn" id="ach-share">生成成就卡，去炫耀</button>
+      <button class="btn ghost" data-close>收下</button></div>`);
+  confetti();
+  const onClick = e => {
+    if (e.target === m || e.target.closest('[data-close]')) { markSeen(); announcing = false; m.removeEventListener('click', onClick); }
+  };
+  m.addEventListener('click', onClick);
+  m.querySelector('#ach-share').onclick = () => { markSeen(); announcing = false; m.removeEventListener('click', onClick); shareAchievement(a, got.get(a.key)); };
+}
+async function shareAchievement(a, at) {
+  const m = showModal('<h3>正在生成成就卡…</h3>');
+  const url = await drawAchievementCard({ ach: a, userName: me.name, at });
+  m.querySelector('.panel').innerHTML = `<h3>${esc(a.name)}</h3><p class="hint">长按图片保存，发朋友圈或小红书</p>
+    <img class="card-img" src="${url}" alt="成就卡：${esc(a.name)}"><button class="btn ghost" data-close>好了</button>`;
+}
+
+async function pageMe() {
+  document.body.classList.remove('buddy');
+  const { owned, buddying } = await store.listMine(me.id);
+  const t = now();
+  const got = computeAchievements(me.id, owned, buddying, t);
+  lsSet(seenKey(), [...got.keys()]);
+  const streak = streakOf(owned, t);
+  const tile = a => {
+    const on = got.has(a.key);
+    const state = on ? 'on' : a.hidden ? 'hidden' : 'locked';
+    return `<button class="ach ${on ? '' : 'off'}" data-ach="${a.key}" ${on ? '' : 'disabled'}>
+      ${badgeSvg(a.glyph, a.rarity, state, 64)}
+      <span class="nm">${on || !a.hidden ? esc(a.name) : '???'}</span>
+      <span class="rs" style="color:${on ? RARITY[a.rarity].color : '#9AAFA6'}">${on ? RARITY[a.rarity].name : a.hidden ? '隐藏' : RARITY[a.rarity].name}</span>
+      <span class="ds">${on ? esc(a.desc) : a.hidden ? esc(a.hint) : esc(a.rule)}</span></button>`;
+  };
+  $app.innerHTML = `<a class="back" href="#/">‹ 返回</a>
+    <div class="hero">${guBubble(streak ? 'happy' : 'normal', streak >= 7 ? 'confetti' : '', streak ? `连戳 <b>${streak} 天</b>${streakTitle(streak) ? `，「${streakTitle(streak)}」` : ''}。<br>已经解锁 <b>${got.size}</b> / ${ACHIEVEMENTS.length} 个成就。` : `已经解锁 <b>${got.size}</b> / ${ACHIEVEMENTS.length} 个成就。<br>点亮一个，咕咕就给你发一张成就卡。`, 72)}</div>
+    <div class="streak-tiers">${[[3, '开始上道'], [7, '小有坚持'], [30, '月度靠谱'], [100, '百日筑基']].map(([d, n]) => `<span class="${streak >= d ? 'on' : ''}">${d} 天 · ${n}</span>`).join('')}</div>
+    <h2 class="sec">发卡人成就</h2><div class="ach-grid">${ACHIEVEMENTS.filter(a => a.who === 'owner' && !a.hidden).map(tile).join('')}</div>
+    <h2 class="sec">搭子成就</h2><div class="ach-grid">${ACHIEVEMENTS.filter(a => a.who === 'buddy' && !a.hidden).map(tile).join('')}</div>
+    <h2 class="sec">隐藏成就</h2><div class="ach-grid">${ACHIEVEMENTS.filter(a => a.hidden).map(tile).join('')}</div>
+    <h2 class="sec">戳戳动物园 <small>当搭子盖戳时，可以用它们当你的分身</small></h2>
+    <div class="zoo">${ANIMALS.map(a => { const on = got.size >= a.need; return `<div class="${on ? '' : 'off'}">${animalSvg(a.key, 60)}<b>${a.name}</b><span>${on ? a.kind : `解锁 ${a.need} 个成就后加入`}</span></div>`; }).join('')}</div>`;
+  $app.onclick = e => {
+    const b = e.target.closest('[data-ach]');
+    if (!b || b.disabled) return;
+    const a = ACHIEVEMENTS.find(x => x.key === b.dataset.ach);
+    shareAchievement(a, got.get(a.key));
   };
 }
 
@@ -552,6 +670,7 @@ async function render(extra) {
     if ((m = path.match(/^\/c\/([^/]+)\/checkin$/))) return await pageCheckin(decodeURIComponent(m[1]));
     if ((m = path.match(/^\/c\/([^/]+)$/))) return await pageCard(decodeURIComponent(m[1]), params);
     if (path === '/new') return await pageNew(params);
+    if (path === '/me') return await pageMe();
     return await pageHome();
   } catch (err) {
     console.error(err);
